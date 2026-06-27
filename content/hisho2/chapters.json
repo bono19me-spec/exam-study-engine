@@ -1,0 +1,27 @@
+[
+  {
+    "id": "hisho2_chapter_01",
+    "title": "必要とされる資質",
+    "description": "秘書に求められる基本姿勢、判断、報告の考え方を学ぶ。"
+  },
+  {
+    "id": "hisho2_chapter_02",
+    "title": "職務知識",
+    "description": "上司の補佐、予定管理、社内外との連絡調整を学ぶ。"
+  },
+  {
+    "id": "hisho2_chapter_03",
+    "title": "一般知識",
+    "description": "企業組織、経営、会計、社会常識、ビジネス用語の基礎を確認する。"
+  },
+  {
+    "id": "hisho2_chapter_04",
+    "title": "マナー・接遇",
+    "description": "電話応対、来客応対、敬語、席次、贈答、慶弔の基礎を確認する。"
+  },
+  {
+    "id": "hisho2_chapter_05",
+    "title": "技能",
+    "description": "文書作成、ファイリング、会議準備、スケジュール管理、資料整理を学ぶ。"
+  }
+]

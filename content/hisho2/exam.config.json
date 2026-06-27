@@ -1,0 +1,25 @@
+{
+  "examId": "hisho2",
+  "title": "秘書検定2級",
+  "baseLanguage": "ja",
+  "defaultQuestionType": "multiple_choice",
+  "choiceCount": 5,
+  "shuffleChoicesInPractice": true,
+  "shuffleChoicesInMockExam": false,
+  "mockExam": {
+    "questionCount": 35,
+    "timeLimitMinutes": 90,
+    "showAnswerImmediately": false,
+    "allowBackNavigation": true,
+    "passingScoreRate": 0.6
+  },
+  "review": {
+    "intervalsCorrect": [1, 3, 7, 14, 30],
+    "intervalsWrong": [1, 3, 7]
+  },
+  "translation": {
+    "enabled": true,
+    "defaultTargetLanguage": "ko",
+    "supportedLanguages": ["ko", "en", "zh"]
+  }
+}
