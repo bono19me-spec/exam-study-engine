@@ -27,6 +27,7 @@ const CONTENT_PACKS = [
       "chapter-04.json",
       "chapter-05.json",
     ],
+    mockExamFiles: ["mock-001.json"],
   },
 ];
 
@@ -39,6 +40,7 @@ let state = {
   chapters: [],
   lessons: [],
   questions: [],
+  mockExams: [],
   resources: [],
   progress: loadProgress(),
   route: parseRoute(),
@@ -67,10 +69,12 @@ async function loadPack(pack) {
   ]);
   const lessons = await Promise.all(pack.lessonFiles.map((file) => getText(`${pack.path}/lessons/${file}`).then(parseMarkdownLesson)));
   const questionGroups = await Promise.all(pack.questionFiles.map((file) => getJson(`${pack.path}/questions/${file}`)));
+  const mockExams = await Promise.all(pack.mockExamFiles.map((file) => getJson(`${pack.path}/mock-exams/${file}`)));
   state.config = config;
   state.chapters = chapters;
   state.lessons = lessons;
   state.questions = questionGroups.flat();
+  state.mockExams = mockExams;
   state.resources = resources;
 }
 
@@ -379,11 +383,13 @@ function renderQuestion(question, index, mode) {
 
 function renderMockExam() {
   const started = state.progress.mockSession?.startedAt;
+  const mockExam = state.mockExams[0];
+  const mockQuestionCount = mockExam?.questions?.length || state.config.mockExam.questionCount;
   if (!started) {
     return `
       <section class="panel">
         <h2>模擬試験</h2>
-        <p>${state.config.mockExam.questionCount}問 / ${state.config.mockExam.timeLimitMinutes}分。最後にまとめて採点します。</p>
+        <p>${mockQuestionCount}問 / ${state.config.mockExam.timeLimitMinutes}分。レッスン確認問題とは別の実戦問題で、最後にまとめて採点します。</p>
         <button class="primary" data-action="start-mock">開始する</button>
       </section>
     `;
@@ -596,7 +602,11 @@ function sessionKey(mode, questionId) {
 }
 
 function getQuestion(id) {
-  return state.questions.find((question) => question.id === id);
+  return allQuestions().find((question) => question.id === id);
+}
+
+function allQuestions() {
+  return [...state.questions, ...state.mockExams.flatMap((exam) => exam.questions || [])];
 }
 
 function toggleBookmark(questionId) {
@@ -612,8 +622,15 @@ function isBookmarked(questionId) {
 }
 
 function startMock() {
-  const ids = state.questions.slice(0, state.config.mockExam.questionCount).map((question) => question.id);
-  state.progress.mockSession = { startedAt: new Date().toISOString(), questionIds: ids, answers: {} };
+  const mockExam = state.mockExams[0];
+  const ids = (mockExam?.questions || state.questions).slice(0, state.config.mockExam.questionCount).map((question) => question.id);
+  state.progress.mockSession = {
+    startedAt: new Date().toISOString(),
+    examId: mockExam?.id || "generated",
+    title: mockExam?.title || "模擬試験",
+    questionIds: ids,
+    answers: {},
+  };
   saveProgress();
   navigate("mock");
 }
