@@ -27,11 +27,16 @@ const CONTENT_PACKS = [
       "chapter-04.json",
       "chapter-05.json",
     ],
-    mockExamFiles: ["mock-001.json"],
+    mockExamFiles: ["mock-001.json", "mock-002.json"],
   },
 ];
 
 const STORAGE_KEY = "ai-study-engine:v1";
+const PAGE_PARAMS = new URLSearchParams(window.location.search);
+const REFRESH_ENTRY = [...PAGE_PARAMS.entries()].find(([key]) => key.trim() === "refresh");
+const REFRESH_TOKEN = REFRESH_ENTRY?.[1]
+  || sessionStorage.getItem("ai-study-engine:refresh-token")
+  || "";
 const app = document.querySelector("#app");
 
 let state = {
@@ -46,6 +51,7 @@ let state = {
   route: parseRoute(),
   translated: false,
 };
+let mockTimer = null;
 
 window.addEventListener("hashchange", () => {
   state.route = parseRoute();
@@ -76,18 +82,28 @@ async function loadPack(pack) {
   state.questions = questionGroups.flat();
   state.mockExams = mockExams;
   state.resources = resources;
+  if (state.progress.mockSession && state.progress.mockSession.questionIds.length !== config.mockExam.questionCount) {
+    state.progress.mockSession = null;
+    saveProgress();
+  }
 }
 
 async function getJson(path) {
-  const response = await fetch(path);
+  const response = await fetch(cacheBustedPath(path), { cache: REFRESH_TOKEN ? "reload" : "default" });
   if (!response.ok) throw new Error(`Failed to load ${path}`);
   return response.json();
 }
 
 async function getText(path) {
-  const response = await fetch(path);
+  const response = await fetch(cacheBustedPath(path), { cache: REFRESH_TOKEN ? "reload" : "default" });
   if (!response.ok) throw new Error(`Failed to load ${path}`);
   return response.text();
+}
+
+function cacheBustedPath(path) {
+  if (!REFRESH_TOKEN) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}v=${encodeURIComponent(REFRESH_TOKEN)}`;
 }
 
 function parseMarkdownLesson(source) {
@@ -141,6 +157,7 @@ function render() {
   app.innerHTML = shell((views[route] || renderHome)());
   bindGlobalActions();
   bindViewActions();
+  syncMockTimer();
 }
 
 function shell(content) {
@@ -383,24 +400,25 @@ function renderQuestion(question, index, mode) {
 
 function renderMockExam() {
   const started = state.progress.mockSession?.startedAt;
-  const mockExam = state.mockExams[0];
-  const mockQuestionCount = mockExam?.questions?.length || state.config.mockExam.questionCount;
+  const mockQuestionCount = state.config.mockExam.questionCount;
+  const mockBankCount = mockQuestionBank().length;
   if (!started) {
     return `
       <section class="panel">
         <h2>模擬試験</h2>
-        <p>${mockQuestionCount}問 / ${state.config.mockExam.timeLimitMinutes}分。レッスン確認問題とは別の実戦問題で、最後にまとめて採点します。</p>
+        <p>選択式31問 + 記述式2問 / ${state.config.mockExam.timeLimitMinutes}分。問題銀行${mockBankCount}問から比率に合わせてランダム出題します。</p>
         <button class="primary" data-action="start-mock">開始する</button>
       </section>
     `;
   }
   const ids = state.progress.mockSession.questionIds;
   const questions = ids.map((id) => getQuestion(id)).filter(Boolean);
-  const answered = Object.keys(state.progress.mockSession.answers).length;
+  const answered = questions.filter((question) => isMockAnswered(question)).length;
+  const remaining = mockRemainingMs();
   return `
     <section class="section-title">
       <h2>模擬試験</h2>
-      <span>${answered}/${questions.length}</span>
+      <span>${formatDuration(remaining)} · ${answered}/${questions.length}</span>
     </section>
     <section class="quiz">
       ${questions.map((question, index) => renderMockQuestion(question, index)).join("")}
@@ -410,6 +428,7 @@ function renderMockExam() {
 }
 
 function renderMockQuestion(question, index) {
+  if (question.type === "fill_blank") return renderMockFillBlank(question, index);
   const selected = state.progress.mockSession.answers[question.id];
   return `
     <article class="question-card">
@@ -418,6 +437,24 @@ function renderMockQuestion(question, index) {
       <div class="choices">
         ${question.choices.map((choice, choiceIndex) => `
           <button class="${selected === choiceIndex ? "selected" : ""}" data-mock-answer="${question.id}" data-choice="${choiceIndex}">${choice}</button>
+        `).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderMockFillBlank(question, index) {
+  const answers = state.progress.mockSession.answers[question.id] || [];
+  return `
+    <article class="question-card">
+      <small>Q${index + 1} · 記述</small>
+      <h2>${question.question}</h2>
+      <div class="blank-list">
+        ${question.blanks.map((blank, blankIndex) => `
+          <label class="field">
+            ${blank.label}
+            <input value="${escapeHtml(answers[blankIndex] || "")}" data-mock-blank="${question.id}" data-blank-index="${blankIndex}" placeholder="解答を入力">
+          </label>
         `).join("")}
       </div>
     </article>
@@ -434,8 +471,9 @@ function renderMockResult() {
       <h2>${rate}%</h2>
       <p>${rate >= state.config.mockExam.passingScoreRate * 100 ? "合格圏" : "復習が必要"}</p>
       <div class="metrics">
-        ${metric("正解", result.correct)}
-        ${metric("問題数", result.total)}
+        ${metric("得点", result.correct)}
+        ${metric("配点", result.total)}
+        ${metric("問題数", result.questionTotal || result.total)}
         ${metric("弱点タグ", result.weakTags.length)}
       </div>
     </section>
@@ -539,6 +577,14 @@ function bindViewActions() {
     saveProgress();
     render();
   }));
+  app.querySelectorAll("[data-mock-blank]").forEach((input) => input.addEventListener("input", () => {
+    const id = input.dataset.mockBlank;
+    const index = Number(input.dataset.blankIndex);
+    const answers = state.progress.mockSession.answers[id] || [];
+    answers[index] = input.value;
+    state.progress.mockSession.answers[id] = answers;
+    saveProgress();
+  }));
   app.querySelector("[data-action='reset-progress']")?.addEventListener("click", () => {
     state.progress = defaultProgress();
     saveProgress();
@@ -609,6 +655,10 @@ function allQuestions() {
   return [...state.questions, ...state.mockExams.flatMap((exam) => exam.questions || [])];
 }
 
+function mockQuestionBank() {
+  return state.mockExams.flatMap((exam) => exam.questions || []);
+}
+
 function toggleBookmark(questionId) {
   const record = state.progress.answers[questionId] || { correctCount: 0, wrongCount: 0, confidence: 0, bookmarked: false };
   record.bookmarked = !record.bookmarked;
@@ -623,39 +673,180 @@ function isBookmarked(questionId) {
 
 function startMock() {
   const mockExam = state.mockExams[0];
-  const ids = (mockExam?.questions || state.questions).slice(0, state.config.mockExam.questionCount).map((question) => question.id);
+  const questions = selectMockQuestions(mockQuestionBank().length ? mockQuestionBank() : state.questions);
+  const ids = questions.map((question) => question.id);
+  const now = new Date();
+  const endsAt = new Date(now.getTime() + state.config.mockExam.timeLimitMinutes * 60 * 1000);
   state.progress.mockSession = {
-    startedAt: new Date().toISOString(),
+    startedAt: now.toISOString(),
+    endsAt: endsAt.toISOString(),
     examId: mockExam?.id || "generated",
     title: mockExam?.title || "模擬試験",
+    seed: cryptoRandomId(),
     questionIds: ids,
     answers: {},
   };
   saveProgress();
-  navigate("mock");
+  if (state.route.name === "mock") render();
+  else navigate("mock");
+}
+
+function selectMockQuestions(pool) {
+  const multipleChoiceCount = state.config.mockExam.multipleChoiceCount || state.config.mockExam.questionCount;
+  const writtenCount = state.config.mockExam.writtenCount || 0;
+  const selection = state.config.mockExam.selection;
+  const multipleChoicePool = pool.filter((question) => question.type !== "fill_blank");
+  const writtenPool = pool.filter((question) => question.type === "fill_blank");
+  const written = shuffle(writtenPool).slice(0, writtenCount);
+  if (!selection || selection.mode !== "random_by_group") {
+    return [...shuffle(multipleChoicePool).slice(0, multipleChoiceCount), ...written];
+  }
+
+  const usedIds = new Set();
+  const selected = [];
+  const groups = selection.groups || [];
+  const quotas = buildQuotas(groups, multipleChoiceCount);
+
+  groups.forEach((group) => {
+    const chapterIds = new Set(group.chapterIds || []);
+    const candidates = shuffle(multipleChoicePool.filter((question) => chapterIds.has(question.chapterId)));
+    candidates.slice(0, quotas[group.id] || 0).forEach((question) => {
+      usedIds.add(question.id);
+      selected.push(question);
+    });
+  });
+
+  if (selected.length < multipleChoiceCount) {
+    shuffle(multipleChoicePool.filter((question) => !usedIds.has(question.id))).slice(0, multipleChoiceCount - selected.length).forEach((question) => selected.push(question));
+  }
+
+  return [...shuffle(selected).slice(0, multipleChoiceCount), ...written];
+}
+
+function buildQuotas(groups, total) {
+  const quotas = {};
+  let used = 0;
+  groups.forEach((group, index) => {
+    const quota = index === groups.length - 1 ? total - used : Math.round(total * group.ratio);
+    quotas[group.id] = quota;
+    used += quota;
+  });
+  return quotas;
+}
+
+function shuffle(items) {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
+function random() {
+  if (!window.crypto?.getRandomValues) return Math.random();
+  const array = new Uint32Array(1);
+  window.crypto.getRandomValues(array);
+  return array[0] / 2 ** 32;
+}
+
+function cryptoRandomId() {
+  return `${Date.now()}-${Math.floor(random() * 1_000_000)}`;
 }
 
 function finishMock() {
   const session = state.progress.mockSession;
   const wrongTags = [];
-  let correct = 0;
+  let correctPoints = 0;
+  let totalPoints = 0;
   session.questionIds.forEach((id) => {
     const question = getQuestion(id);
-    const selected = session.answers[id];
-    const ok = selected === question.answerIndex;
-    if (ok) correct += 1;
-    else wrongTags.push(...question.tags);
-    answerForMock(question, selected, ok);
+    const score = scoreMockQuestion(question, session.answers[id]);
+    correctPoints += score.correct;
+    totalPoints += score.total;
+    const ok = score.correct === score.total;
+    if (!ok) wrongTags.push(...question.tags);
+    answerForMock(question, session.answers[id], ok);
   });
   state.progress.lastMockResult = {
-    correct,
-    total: session.questionIds.length,
+    correct: correctPoints,
+    total: totalPoints,
+    questionTotal: session.questionIds.length,
     weakTags: [...new Set(wrongTags)].slice(0, 5),
     finishedAt: new Date().toISOString(),
   };
   state.progress.mockSession = null;
   saveProgress();
   navigate("result");
+}
+
+function scoreMockQuestion(question, answer) {
+  if (question.type !== "fill_blank") {
+    return { correct: answer === question.answerIndex ? 1 : 0, total: 1 };
+  }
+  return {
+    correct: question.blanks.filter((blank, index) => isBlankCorrect(answer?.[index], blank.answers)).length,
+    total: question.blanks.length,
+  };
+}
+
+function isBlankCorrect(value, answers) {
+  const normalized = normalizeAnswer(value);
+  return answers.some((answer) => normalizeAnswer(answer) === normalized);
+}
+
+function normalizeAnswer(value = "") {
+  return String(value).trim().replace(/\s+/g, "").toLowerCase();
+}
+
+function isMockAnswered(question) {
+  const answer = state.progress.mockSession.answers[question.id];
+  if (question.type !== "fill_blank") return answer !== undefined;
+  return question.blanks.every((_, index) => String(answer?.[index] || "").trim());
+}
+
+function mockRemainingMs() {
+  const endsAt = new Date(state.progress.mockSession.endsAt).getTime();
+  return Math.max(0, endsAt - Date.now());
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function syncMockTimer() {
+  if (mockTimer) {
+    clearInterval(mockTimer);
+    mockTimer = null;
+  }
+  if (state.route.name !== "mock" || !state.progress.mockSession) return;
+  mockTimer = setInterval(() => {
+    if (!state.progress.mockSession) return;
+    if (mockRemainingMs() <= 0) {
+      clearInterval(mockTimer);
+      mockTimer = null;
+      finishMock();
+      return;
+    }
+    const timerNode = app.querySelector(".section-title span");
+    if (timerNode) {
+      const ids = state.progress.mockSession.questionIds;
+      const questions = ids.map((id) => getQuestion(id)).filter(Boolean);
+      const answered = questions.filter((question) => isMockAnswered(question)).length;
+      timerNode.textContent = `${formatDuration(mockRemainingMs())} · ${answered}/${questions.length}`;
+    }
+  }, 1000);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function answerForMock(question, selectedIndex, correct) {

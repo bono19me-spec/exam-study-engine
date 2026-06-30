@@ -7,11 +7,30 @@
   "shuffleChoicesInPractice": true,
   "shuffleChoicesInMockExam": false,
   "mockExam": {
-    "questionCount": 35,
-    "timeLimitMinutes": 90,
+    "questionCount": 33,
+    "multipleChoiceCount": 31,
+    "writtenCount": 2,
+    "timeLimitMinutes": 100,
     "showAnswerImmediately": false,
     "allowBackNavigation": true,
-    "passingScoreRate": 0.6
+    "passingScoreRate": 0.6,
+    "selection": {
+      "mode": "random_by_group",
+      "groups": [
+        {
+          "id": "theory",
+          "label": "理論",
+          "chapterIds": ["hisho2_chapter_01", "hisho2_chapter_02", "hisho2_chapter_03"],
+          "ratio": 0.61
+        },
+        {
+          "id": "practical",
+          "label": "実技",
+          "chapterIds": ["hisho2_chapter_04", "hisho2_chapter_05"],
+          "ratio": 0.4
+        }
+      ]
+    }
   },
   "review": {
     "intervalsCorrect": [1, 3, 7, 14, 30],

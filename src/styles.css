@@ -346,6 +346,23 @@ select {
   color: var(--text);
 }
 
+input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.blank-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
 .stat-row {
   display: grid;
   grid-template-columns: minmax(90px, 1fr) 2fr 48px;

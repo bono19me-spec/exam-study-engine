@@ -4,10 +4,27 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AI Study Engine</title>
-    <link rel="stylesheet" href="./src/styles.css">
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="./src/app.js"></script>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const refreshEntry = [...params.entries()].find(([key]) => key.trim() === "refresh");
+      const refreshToken = refreshEntry?.[1] || sessionStorage.getItem("ai-study-engine:refresh-token") || "";
+      if (refreshToken) {
+        sessionStorage.setItem("ai-study-engine:refresh-token", refreshToken);
+      }
+
+      const cacheSuffix = refreshToken ? `?v=${encodeURIComponent(refreshToken)}` : "";
+      const stylesheet = document.createElement("link");
+      stylesheet.rel = "stylesheet";
+      stylesheet.href = `./src/styles.css${cacheSuffix}`;
+      document.head.append(stylesheet);
+
+      const script = document.createElement("script");
+      script.type = "module";
+      script.src = `./src/app.js${cacheSuffix}`;
+      document.body.append(script);
+    </script>
   </body>
 </html>
