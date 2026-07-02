@@ -365,6 +365,31 @@ function quizView(title, questions, options) {
         <button data-action="translate">${state.translated ? "原文に戻す" : "翻訳"}</button>
       </div>
       ${questions.map((question, index) => renderQuestion(question, index, options.mode)).join("")}
+      ${renderQuizSummary(questions, options.mode)}
+    </section>
+  `;
+}
+
+function renderQuizSummary(questions, mode) {
+  const answered = questions
+    .map((question) => ({ question, saved: state.progress.sessionAnswers[sessionKey(mode, question.id)] }))
+    .filter((item) => item.saved);
+  if (answered.length !== questions.length) return "";
+  const correct = answered.filter((item) => item.saved.correct).length;
+  const wrong = answered.filter((item) => !item.saved.correct);
+  return `
+    <section class="panel quiz-summary">
+      <div class="section-title">
+        <h2>採点まとめ</h2>
+        <span>${correct}/${questions.length}</span>
+      </div>
+      ${wrong.length ? wrong.map(({ question }) => `
+        <div class="review-row wrong">
+          <strong>${question.id}</strong>
+          <span>${question.tags.join(" · ")}</span>
+          <p>${question.question}</p>
+        </div>
+      `).join("") : "<p>全問正解です。</p>"}
     </section>
   `;
 }
@@ -485,6 +510,53 @@ function renderMockResult() {
         <button data-action="start-mock">もう一度</button>
       </div>
     </section>
+    <section class="section-title">
+      <h2>答案レビュー</h2>
+      <span>${result.details?.length || 0}</span>
+    </section>
+    <div class="card-list result-review">
+      ${(result.details || []).map((detail, index) => renderMockResultDetail(detail, index)).join("") || "<p>この結果には詳細データがありません。もう一度模擬試験を実施してください。</p>"}
+    </div>
+  `;
+}
+
+function renderMockResultDetail(detail, index) {
+  const question = getQuestion(detail.id);
+  if (!question) return "";
+  const ok = detail.correct === detail.total;
+  return `
+    <article class="card result-detail ${ok ? "correct" : "wrong"}">
+      <div class="card-head">
+        <small>Q${index + 1} · ${question.tags.join(" · ")}</small>
+        <span class="status ${ok ? "done" : ""}">${ok ? "正解" : `${detail.correct}/${detail.total}`}</span>
+      </div>
+      <h2>${question.question}</h2>
+      ${question.type === "fill_blank" ? renderBlankResult(question, detail.answer) : renderChoiceResult(question, detail.answer)}
+      <p>${question.explanation}</p>
+    </article>
+  `;
+}
+
+function renderChoiceResult(question, answer) {
+  const selected = answer === undefined ? "未解答" : question.choices[answer];
+  return `
+    <div class="answer-compare">
+      <p><strong>自分の答え:</strong> ${escapeHtml(selected)}</p>
+      <p><strong>正解:</strong> ${escapeHtml(question.choices[question.answerIndex])}</p>
+    </div>
+  `;
+}
+
+function renderBlankResult(question, answer = []) {
+  return `
+    <div class="answer-compare">
+      ${question.blanks.map((blank, index) => {
+        const mine = answer[index] || "未解答";
+        const correct = blank.answers[0];
+        const ok = isBlankCorrect(mine, blank.answers);
+        return `<p class="${ok ? "correct-text" : "wrong-text"}"><strong>${blank.label}:</strong> ${escapeHtml(mine)} <span>正解: ${escapeHtml(correct)}</span></p>`;
+      }).join("")}
+    </div>
   `;
 }
 
@@ -757,21 +829,25 @@ function cryptoRandomId() {
 function finishMock() {
   const session = state.progress.mockSession;
   const wrongTags = [];
+  const details = [];
   let correctPoints = 0;
   let totalPoints = 0;
   session.questionIds.forEach((id) => {
     const question = getQuestion(id);
-    const score = scoreMockQuestion(question, session.answers[id]);
+    const answer = session.answers[id];
+    const score = scoreMockQuestion(question, answer);
     correctPoints += score.correct;
     totalPoints += score.total;
     const ok = score.correct === score.total;
     if (!ok) wrongTags.push(...question.tags);
-    answerForMock(question, session.answers[id], ok);
+    details.push({ id, answer, correct: score.correct, total: score.total });
+    answerForMock(question, answer, ok);
   });
   state.progress.lastMockResult = {
     correct: correctPoints,
     total: totalPoints,
     questionTotal: session.questionIds.length,
+    details,
     weakTags: [...new Set(wrongTags)].slice(0, 5),
     finishedAt: new Date().toISOString(),
   };

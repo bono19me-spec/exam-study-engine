@@ -306,6 +306,42 @@ p {
   border-left: 4px solid var(--danger);
 }
 
+.quiz-summary,
+.result-detail {
+  grid-column: 1 / -1;
+}
+
+.review-row,
+.answer-compare {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.review-row span,
+.answer-compare span {
+  color: var(--muted);
+}
+
+.result-detail.correct {
+  border-left: 4px solid var(--success);
+}
+
+.result-detail.wrong,
+.review-row.wrong {
+  border-left: 4px solid var(--danger);
+  padding-left: 12px;
+}
+
+.correct-text {
+  color: var(--success);
+}
+
+.wrong-text {
+  color: var(--danger);
+}
+
 .text-button {
   min-height: 32px;
   padding: 0 8px;
