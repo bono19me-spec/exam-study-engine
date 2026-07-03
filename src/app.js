@@ -310,11 +310,71 @@ function renderQuiz() {
 }
 
 function renderReview() {
-  const questions = dueQuestions();
-  if (!questions.length) {
-    return emptyState("復習問題はありません", "今日の復習予定は空です。新しい問題を解くと復習日が登録されます。", "lessons", "レッスンへ");
+  const session = state.progress.reviewSession;
+  if (!session) {
+    const candidates = reviewCandidates();
+    if (!candidates.length) {
+      return emptyState("復習問題はありません", "まずはレッスンの確認問題を解くと、復習カードを作れます。", "lessons", "レッスンへ");
+    }
+    return `
+      <section class="panel">
+        <h2>復習カード</h2>
+        <p>復習対象からランダムに5問だけ出題します。1問ずつ解いて、すぐに正解と解説を確認できます。</p>
+        <div class="metrics">
+          ${metric("出題数", Math.min(5, candidates.length))}
+          ${metric("復習候補", candidates.length)}
+          ${metric("所要時間", "5分")}
+        </div>
+        <button class="primary" data-action="start-review">復習を始める</button>
+      </section>
+    `;
   }
-  return quizView("今日の復習", questions, { mode: "review", allowSubmit: true });
+
+  const questions = session.questionIds.map((id) => getQuestion(id)).filter(Boolean);
+  const mode = reviewMode();
+  const index = Math.min(session.index, questions.length);
+  if (index >= questions.length) {
+    const answered = questions.map((question) => state.progress.sessionAnswers[sessionKey(mode, question.id)]).filter(Boolean);
+    const correct = answered.filter((item) => item.correct).length;
+    return `
+      <section class="panel quiz-summary">
+        <div class="section-title">
+          <h2>復習完了</h2>
+          <span>${correct}/${questions.length}</span>
+        </div>
+        ${questions.map((question) => {
+          const saved = state.progress.sessionAnswers[sessionKey(mode, question.id)];
+          return `
+            <div class="review-row ${saved?.correct ? "" : "wrong"}">
+              <strong>${saved?.correct ? "正解" : "不正解"}</strong>
+              <span>${question.tags.join(" · ")}</span>
+              <p>${question.question}</p>
+            </div>
+          `;
+        }).join("")}
+        <div class="actions">
+          <button class="primary" data-action="start-review">もう一度5問</button>
+          <button data-action="clear-review">終了する</button>
+        </div>
+      </section>
+    `;
+  }
+
+  const question = questions[index];
+  const saved = state.progress.sessionAnswers[sessionKey(mode, question.id)];
+  return `
+    <section class="review-session">
+      <div class="section-title">
+        <h2>復習カード</h2>
+        <span>${index + 1}/${questions.length}</span>
+      </div>
+      ${renderQuestion(question, index, mode)}
+      <div class="actions">
+        ${saved ? `<button class="primary" data-action="next-review">${index + 1 === questions.length ? "結果を見る" : "次の問題"}</button>` : ""}
+        <button data-action="clear-review">終了する</button>
+      </div>
+    </section>
+  `;
 }
 
 function renderWrongNotes() {
@@ -409,7 +469,8 @@ function renderQuestion(question, index, mode) {
       <div class="choices">
         ${question.choices.map((choice, choiceIndex) => {
           const cls = isAnswered && choiceIndex === question.answerIndex ? "correct" : isAnswered && choiceIndex === selected ? "wrong" : "";
-          return `<button class="${cls}" data-answer="${question.id}" data-choice="${choiceIndex}" data-mode="${mode}">${state.translated ? translateText(choice) : choice}</button>`;
+          const answerAttrs = isAnswered ? "disabled" : `data-answer="${question.id}" data-choice="${choiceIndex}" data-mode="${mode}"`;
+          return `<button class="${cls}" ${answerAttrs}>${state.translated ? translateText(choice) : choice}</button>`;
         }).join("")}
       </div>
       ${isAnswered ? `
@@ -644,6 +705,9 @@ function bindViewActions() {
   });
   app.querySelector("[data-action='start-mock']")?.addEventListener("click", startMock);
   app.querySelector("[data-action='finish-mock']")?.addEventListener("click", finishMock);
+  app.querySelector("[data-action='start-review']")?.addEventListener("click", startReview);
+  app.querySelector("[data-action='next-review']")?.addEventListener("click", nextReview);
+  app.querySelector("[data-action='clear-review']")?.addEventListener("click", clearReview);
   app.querySelectorAll("[data-mock-answer]").forEach((button) => button.addEventListener("click", () => {
     state.progress.mockSession.answers[button.dataset.mockAnswer] = Number(button.dataset.choice);
     saveProgress();
@@ -685,6 +749,48 @@ function dueQuestions() {
     const record = state.progress.answers[question.id];
     return record && new Date(record.nextReviewAt).getTime() <= now;
   });
+}
+
+function reviewCandidates() {
+  const due = dueQuestions();
+  if (due.length) return due;
+  const answeredIds = new Set(Object.keys(state.progress.answers));
+  const answered = state.questions.filter((question) => answeredIds.has(question.id));
+  if (answered.length) return answered;
+  return state.questions;
+}
+
+function startReview() {
+  const questions = shuffle(reviewCandidates()).slice(0, 5);
+  const sessionId = cryptoRandomId();
+  state.progress.reviewSession = {
+    id: sessionId,
+    startedAt: new Date().toISOString(),
+    index: 0,
+    questionIds: questions.map((question) => question.id),
+  };
+  questions.forEach((question) => {
+    delete state.progress.sessionAnswers[sessionKey(`review:${sessionId}`, question.id)];
+  });
+  saveProgress();
+  render();
+}
+
+function nextReview() {
+  if (!state.progress.reviewSession) return;
+  state.progress.reviewSession.index += 1;
+  saveProgress();
+  render();
+}
+
+function clearReview() {
+  state.progress.reviewSession = null;
+  saveProgress();
+  render();
+}
+
+function reviewMode() {
+  return `review:${state.progress.reviewSession.id}`;
 }
 
 function answerQuestion(questionId, selectedIndex, mode) {
@@ -1013,6 +1119,7 @@ function defaultProgress() {
     completedLessons: [],
     answers: {},
     sessionAnswers: {},
+    reviewSession: null,
     mockSession: null,
     lastMockResult: null,
     darkMode: false,

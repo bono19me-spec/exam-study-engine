@@ -307,8 +307,18 @@ p {
 }
 
 .quiz-summary,
-.result-detail {
+.result-detail,
+.review-session {
   grid-column: 1 / -1;
+}
+
+.review-session {
+  display: grid;
+  gap: 14px;
+}
+
+.review-session .question-card {
+  width: 100%;
 }
 
 .review-row,
